@@ -136,18 +136,24 @@ struct PermissionBadge: View {
     @EnvironmentObject var state: AppState
 
     var body: some View {
-        let trusted = state.permissions.trusted
+        let allOK = state.permissions.trusted && state.permissions.inputMonitoring
         return Button {
-            if trusted { state.permissions.openSystemSettings() }
-            else { state.permissions.requestWithPrompt() }
+            if !state.permissions.trusted { state.permissions.requestWithPrompt() }
+            else if !state.permissions.inputMonitoring {
+                state.permissions.requestInputMonitoring()
+                state.permissions.openInputMonitoringSettings()
+            } else {
+                state.permissions.openSystemSettings()
+            }
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: trusted ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
-                    .foregroundStyle(trusted ? .green : .orange)
+                Image(systemName: allOK ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
+                    .foregroundStyle(allOK ? .green : .orange)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(trusted ? "Accessibility on" : "Permission needed")
+                    Text(allOK ? "Permissions on" : "Permission needed")
                         .font(.caption.weight(.semibold))
-                    Text(trusted ? "Ready to send input" : "Click to grant access")
+                    Text(allOK ? "Ready to click & record"
+                         : (!state.permissions.trusted ? "Grant Accessibility" : "Grant Input Monitoring"))
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()

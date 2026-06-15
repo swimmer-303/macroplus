@@ -110,14 +110,14 @@ final class AppState: ObservableObject {
     // MARK: - Macro control
 
     func toggleRecording() {
-        guard ensureTrusted() else { return }
         if macroEngine.isRecording {
             macroEngine.stopRecording(name: "")
-        } else {
-            macroEngine.recordMouseMoves = recordMouseMoves
-            macroEngine.startRecording()
-            statusMessage = "Recording… click & type, then press Stop"
+            return
         }
+        guard ensureCanRecord() else { return }
+        macroEngine.recordMouseMoves = recordMouseMoves
+        macroEngine.startRecording()
+        statusMessage = "Recording… click & type, then press Stop"
     }
 
     func playSelected() {
@@ -146,6 +146,19 @@ final class AppState: ObservableObject {
         if !permissions.trusted {
             permissions.requestWithPrompt()
             statusMessage = "Grant Accessibility access, then try again"
+            return false
+        }
+        return true
+    }
+
+    /// Recording listens to global input, which needs the Input Monitoring permission.
+    @discardableResult
+    func ensureCanRecord() -> Bool {
+        permissions.refresh()
+        if !permissions.inputMonitoring {
+            permissions.requestInputMonitoring()
+            permissions.openInputMonitoringSettings()
+            statusMessage = "Enable MacroPlus under Input Monitoring, then record again"
             return false
         }
         return true

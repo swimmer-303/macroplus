@@ -68,17 +68,37 @@ struct SettingsView: View {
 
     private var permissionCard: some View {
         Card(title: "Permissions", systemImage: "lock.shield") {
-            HStack {
-                Image(systemName: state.permissions.trusted ? "checkmark.circle.fill" : "xmark.circle.fill")
-                    .foregroundStyle(state.permissions.trusted ? .green : .orange)
-                Text(state.permissions.trusted
-                     ? "Accessibility access granted."
-                     : "MacroPlus needs Accessibility access to send input.")
-                    .font(.callout)
-                Spacer()
-                Button("Open System Settings") { state.permissions.openSystemSettings() }
-                    .buttonStyle(.bordered)
+            permissionRow(
+                ok: state.permissions.trusted,
+                title: "Accessibility",
+                detail: "Required to send clicks & keystrokes (autoclicker + playback).",
+                action: { state.permissions.openSystemSettings() }
+            )
+            Divider()
+            permissionRow(
+                ok: state.permissions.inputMonitoring,
+                title: "Input Monitoring",
+                detail: "Required to record global mouse & keyboard input.",
+                action: {
+                    state.permissions.requestInputMonitoring()
+                    state.permissions.openInputMonitoringSettings()
+                }
+            )
+        }
+    }
+
+    private func permissionRow(ok: Bool, title: String, detail: String,
+                               action: @escaping () -> Void) -> some View {
+        HStack {
+            Image(systemName: ok ? "checkmark.circle.fill" : "xmark.circle.fill")
+                .foregroundStyle(ok ? .green : .orange)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.callout.weight(.medium))
+                Text(detail).font(.caption2).foregroundStyle(.secondary)
             }
+            Spacer()
+            Button(ok ? "Open Settings" : "Grant…", action: action)
+                .buttonStyle(.bordered)
         }
     }
 
