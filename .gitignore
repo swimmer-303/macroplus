@@ -1,0 +1,7 @@
+.build/
+.swiftpm/
+*.app/
+Resources/*.iconset/
+Resources/*.icns
+.DS_Store
+xcuserdata/
