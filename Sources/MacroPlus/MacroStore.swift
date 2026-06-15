@@ -31,6 +31,13 @@ final class MacroStore: ObservableObject {
         save()
     }
 
+    /// Replaces a macro in place (used by the editor) and persists.
+    func update(_ macro: Macro) {
+        guard let i = macros.firstIndex(where: { $0.id == macro.id }) else { return }
+        macros[i] = macro
+        save()
+    }
+
     func load() {
         guard let data = try? Data(contentsOf: fileURL) else { return }
         if let decoded = try? JSONDecoder().decode([Macro].self, from: data) {

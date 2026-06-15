@@ -4,12 +4,14 @@ import UniformTypeIdentifiers
 
 struct MacroView: View {
     @EnvironmentObject var state: AppState
+    @State private var editingMacroID: UUID?
 
     private var engine: MacroEngine { state.macroEngine }
     private var store: MacroStore { state.store }
 
     private var speedLabel: String {
         let s = state.macroSpeed
+        if s >= 1000 { return "Instant" }
         return s < 10 ? String(format: "%.2g×", s) : "\(Int(s))×"
     }
 
@@ -23,6 +25,9 @@ struct MacroView: View {
             }
         }
         .padding(20)
+        .sheet(item: $editingMacroID) { id in
+            MacroEditorView(macroID: id).environmentObject(state)
+        }
     }
 
     private var header: some View {
@@ -146,12 +151,19 @@ struct MacroView: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Speed \(speedLabel)").font(.caption).foregroundStyle(.secondary)
-                    Slider(value: $state.macroSpeed, in: 0.25...50.0)
+                    // Clamp the slider at 100×; the Instant preset goes beyond.
+                    Slider(value: $state.macroSpeed, in: 0.25...100.0)
                     HStack {
-                        ForEach([1.0, 2.0, 5.0, 10.0, 25.0, 50.0], id: \.self) { s in
-                            Button(s < 1 ? "\(s)×" : "\(Int(s))×") { state.macroSpeed = s }
+                        ForEach([1.0, 5.0, 10.0, 25.0, 50.0, 100.0], id: \.self) { s in
+                            Button("\(Int(s))×") { state.macroSpeed = s }
                                 .buttonStyle(.bordered).controlSize(.small)
                         }
+                        Button {
+                            state.macroSpeed = 10000   // skip all waits
+                        } label: {
+                            Label("Instant", systemImage: "bolt.fill")
+                        }
+                        .buttonStyle(.borderedProminent).controlSize(.small)
                     }
                 }
 
@@ -171,6 +183,14 @@ struct MacroView: View {
                     ) {
                         if engine.isPlaying { state.stopMacro() } else { state.playSelected() }
                     }
+                    Button {
+                        editingMacroID = macro.id
+                    } label: {
+                        Label("Edit", systemImage: "slider.horizontal.3")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(engine.isPlaying)
+
                     Button(role: .destructive) {
                         store.delete(macro)
                         state.selectedMacroID = nil
@@ -181,7 +201,13 @@ struct MacroView: View {
                 }
 
                 Divider()
-                Text("Steps").font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Text("Steps").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Edit steps…") { editingMacroID = macro.id }
+                        .buttonStyle(.link).controlSize(.small)
+                        .disabled(engine.isPlaying)
+                }
                 eventList(macro)
             }
             .frame(maxWidth: .infinity)
