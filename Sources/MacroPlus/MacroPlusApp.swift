@@ -52,6 +52,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillBecomeActive(_ notification: Notification) {
         state?.permissions.refresh()
+        // Re-arm global hotkeys in case permission was just granted.
+        state?.hotkey.reinstallIfNeeded()
     }
 
     private func setupStatusItem() {

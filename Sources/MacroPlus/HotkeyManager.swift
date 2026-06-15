@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CoreGraphics
 
 /// Actions that can be triggered by a global hotkey.
 enum HotkeyAction: String, CaseIterable, Identifiable {
@@ -26,14 +27,14 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
     }
 }
 
-/// Listens for global trigger keys and fires the matching action.
-/// Uses NSEvent global+local monitors (global requires Accessibility permission).
+/// Listens for global trigger keys via a CGEventTap and fires the matching action.
+/// (NSEvent global monitors drop keyDown events — a CGEventTap is reliable.)
 final class HotkeyManager: ObservableObject {
     @Published var bindings: [HotkeyAction: UInt16]
     var handlers: [HotkeyAction: () -> Void] = [:]
 
-    private var globalMonitor: Any?
-    private var localMonitor: Any?
+    private var eventTap: CFMachPort?
+    private var runLoopSource: CFRunLoopSource?
 
     init() {
         var defaults: [HotkeyAction: UInt16] = [:]
@@ -43,23 +44,42 @@ final class HotkeyManager: ObservableObject {
 
     func install() {
         uninstall()
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
-            self?.handle(event)
-        }
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
-            // Swallow the key only when it's bound to an action, so we don't
-            // interfere with normal typing in our own text fields.
-            if self?.action(for: event.keyCode) != nil {
-                self?.handle(event)
-                return nil
-            }
-            return event
-        }
+        let mask: CGEventMask = (1 << CGEventType.keyDown.rawValue)
+        let refcon = Unmanaged.passUnretained(self).toOpaque()
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .listenOnly,
+            eventsOfInterest: mask,
+            callback: { _, type, event, refcon in
+                if let refcon = refcon {
+                    let mgr = Unmanaged<HotkeyManager>.fromOpaque(refcon).takeUnretainedValue()
+                    mgr.handle(type: type, event: event)
+                }
+                return Unmanaged.passUnretained(event)
+            },
+            userInfo: refcon
+        ) else { return }   // fails until Accessibility/Input Monitoring is granted
+
+        let src = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        CFRunLoopAddSource(CFRunLoopGetMain(), src, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+        eventTap = tap
+        runLoopSource = src
     }
 
     func uninstall() {
-        if let g = globalMonitor { NSEvent.removeMonitor(g); globalMonitor = nil }
-        if let l = localMonitor { NSEvent.removeMonitor(l); localMonitor = nil }
+        if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: false) }
+        if let src = runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), src, .commonModes)
+        }
+        eventTap = nil
+        runLoopSource = nil
+    }
+
+    /// Re-installs the tap — call once permissions are granted so hotkeys come alive.
+    func reinstallIfNeeded() {
+        if eventTap == nil { install() }
     }
 
     /// Rebinds an action, refusing duplicates by clearing any other action on that key.
@@ -79,8 +99,13 @@ final class HotkeyManager: ObservableObject {
         bindings.first(where: { $0.value == keyCode })?.key
     }
 
-    private func handle(_ event: NSEvent) {
-        guard let action = action(for: event.keyCode) else { return }
+    private func handle(type: CGEventType, event: CGEvent) {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: true) }
+            return
+        }
+        let code = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+        guard let action = action(for: code) else { return }
         DispatchQueue.main.async { [weak self] in self?.handlers[action]?() }
     }
 }
