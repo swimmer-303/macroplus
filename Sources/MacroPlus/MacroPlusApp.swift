@@ -22,7 +22,7 @@ struct MacroPlusApp: App {
                     .keyboardShortcut("r", modifiers: [.command])
                 Button("Record / Stop Macro") { state.toggleRecording() }
                     .keyboardShortcut("e", modifiers: [.command])
-                Button("Play Selected Macro") { state.playSelected() }
+                Button("Play / Stop Macro") { state.togglePlayback() }
                     .keyboardShortcut("p", modifiers: [.command])
             }
         }

@@ -177,7 +177,7 @@ struct AutoClickerView: View {
                 active: clicker.isRunning
             ) { state.toggleClicker() }
 
-            Text("or press \(state.hotkey.keyName)")
+            Text("or press \(state.hotkey.keyName(for: .toggleClicker))")
                 .font(.callout).foregroundStyle(.secondary)
                 .frame(width: 110)
         }

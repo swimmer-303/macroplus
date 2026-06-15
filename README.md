@@ -13,7 +13,6 @@ A fast, native **autoclicker & macro studio** for macOS — built in Swift + Swi
 - Repeat **until stopped** or an exact **number of clicks**.
 - Click at the **current cursor** or a **fixed point** (with a "capture cursor" picker).
 - **Humanize** mode adds subtle random timing & position jitter.
-- Global **start/stop hotkey** (default `F6`, rebindable).
 
 ### ⏺ Macro recorder
 - Record real mouse clicks, movement, scrolling and keystrokes **system-wide**.
@@ -24,7 +23,9 @@ A fast, native **autoclicker & macro studio** for macOS — built in Swift + Swi
 ### ✨ Polish
 - Clean SwiftUI interface with a sidebar, status bar and live indicators.
 - Lives in the **menu bar** for quick start/stop without opening the window.
-- Keyboard shortcuts: `⌘R` start/stop · `⌘E` record · `⌘P` play.
+- **Global hotkeys** (work even when unfocused, all rebindable in Settings):
+  `F6` start/stop clicking · `F7` record/stop · `F8` play/stop.
+- In-app menu shortcuts: `⌘R` start/stop · `⌘E` record · `⌘P` play.
 
 ## Build & run
 

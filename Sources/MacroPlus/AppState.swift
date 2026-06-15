@@ -69,7 +69,9 @@ final class AppState: ObservableObject {
         macroEngine.onPlaybackFinished = { [weak self] in
             self?.statusMessage = "Playback finished"
         }
-        hotkey.onTrigger = { [weak self] in self?.toggleClicker() }
+        hotkey.handlers[.toggleClicker] = { [weak self] in self?.toggleClicker() }
+        hotkey.handlers[.toggleRecording] = { [weak self] in self?.toggleRecording() }
+        hotkey.handlers[.playMacro] = { [weak self] in self?.togglePlayback() }
         hotkey.install()
     }
 
@@ -101,7 +103,7 @@ final class AppState: ObservableObject {
         }
         clicker.start(job)
         statusMessage = repeatMode == .forever
-            ? "Clicking… press \(hotkey.keyName) to stop"
+            ? "Clicking… press \(hotkey.keyName(for: .toggleClicker)) to stop"
             : "Clicking \(repeatCount)×…"
     }
 
@@ -126,6 +128,10 @@ final class AppState: ObservableObject {
 
     func stopMacro() {
         macroEngine.stopPlayback()
+    }
+
+    func togglePlayback() {
+        if macroEngine.isPlaying { stopMacro() } else { playSelected() }
     }
 
     var selectedMacro: Macro? {

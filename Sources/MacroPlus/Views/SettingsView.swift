@@ -3,7 +3,7 @@ import AppKit
 
 struct SettingsView: View {
     @EnvironmentObject var state: AppState
-    @State private var capturingHotkey = false
+    @State private var capturingAction: HotkeyAction?
     @State private var keyMonitor: Any?
 
     var body: some View {
@@ -30,22 +30,25 @@ struct SettingsView: View {
     }
 
     private var hotkeyCard: some View {
-        Card(title: "Start / stop hotkey", systemImage: "keyboard") {
-            HStack {
-                Text("Global trigger for the autoclicker.")
-                    .font(.callout).foregroundStyle(.secondary)
-                Spacer()
-                Button {
-                    capturingHotkey ? stopCapture() : startCapture()
-                } label: {
-                    Text(capturingHotkey ? "Press any key…" : state.hotkey.keyName)
-                        .font(.body.monospaced())
-                        .frame(minWidth: 80)
-                        .padding(.vertical, 6).padding(.horizontal, 14)
-                        .background(RoundedRectangle(cornerRadius: 8)
-                            .fill(capturingHotkey ? Theme.accent.opacity(0.2) : Color.primary.opacity(0.06)))
+        Card(title: "Global hotkeys", systemImage: "keyboard") {
+            Text("Trigger actions from anywhere, even when MacroPlus isn't focused.")
+                .font(.callout).foregroundStyle(.secondary)
+            ForEach(HotkeyAction.allCases) { action in
+                HStack {
+                    Text(action.label).font(.callout)
+                    Spacer()
+                    Button {
+                        capturingAction == action ? stopCapture() : startCapture(action)
+                    } label: {
+                        Text(capturingAction == action ? "Press any key…" : state.hotkey.keyName(for: action))
+                            .font(.body.monospaced())
+                            .frame(minWidth: 90)
+                            .padding(.vertical, 6).padding(.horizontal, 14)
+                            .background(RoundedRectangle(cornerRadius: 8)
+                                .fill(capturingAction == action ? Theme.accent.opacity(0.2) : Color.primary.opacity(0.06)))
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
     }
@@ -94,6 +97,8 @@ struct SettingsView: View {
                         .font(.caption).foregroundStyle(.secondary)
                     Text("⌘R start · ⌘E record · ⌘P play")
                         .font(.caption2.monospaced()).foregroundStyle(.secondary)
+                    Text("Global: \(state.hotkey.keyName(for: .toggleClicker)) click · \(state.hotkey.keyName(for: .toggleRecording)) record · \(state.hotkey.keyName(for: .playMacro)) play")
+                        .font(.caption2.monospaced()).foregroundStyle(.secondary)
                 }
                 Spacer()
             }
@@ -102,17 +107,18 @@ struct SettingsView: View {
 
     // MARK: hotkey capture
 
-    private func startCapture() {
-        capturingHotkey = true
+    private func startCapture(_ action: HotkeyAction) {
+        stopCapture()
+        capturingAction = action
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
-            state.hotkey.keyCode = event.keyCode
+            state.hotkey.rebind(action, to: event.keyCode)
             stopCapture()
             return nil
         }
     }
 
     private func stopCapture() {
-        capturingHotkey = false
+        capturingAction = nil
         if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }
     }
 }

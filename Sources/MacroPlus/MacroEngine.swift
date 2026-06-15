@@ -38,15 +38,11 @@ final class MacroEngine: ObservableObject {
             recordMouseMoves ? .mouseMoved : []
         ]
 
+        // Global monitor only: it fires for events sent to *other* apps, never to
+        // MacroPlus itself. That means clicking our own Start/Stop buttons is never
+        // recorded — a macro is meant to automate other applications.
         if let m = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] event in
             self?.capture(event)
-        }) {
-            monitors.append(m)
-        }
-        // Also capture events delivered to our own windows so the user sees feedback.
-        if let m = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { [weak self] event in
-            self?.capture(event)
-            return event
         }) {
             monitors.append(m)
         }
