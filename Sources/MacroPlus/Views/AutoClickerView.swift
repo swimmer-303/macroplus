@@ -71,14 +71,17 @@ struct AutoClickerView: View {
     }
 
     private func timeField(_ label: String, value: Binding<Int>, range: ClosedRange<Int>) -> some View {
-        VStack(spacing: 4) {
-            Stepper(value: value, in: range) {
-                TextField("", value: value, format: .number)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 56)
-                    .multilineTextAlignment(.center)
-            }
-            .labelsHidden()
+        // A plain, typeable number box that clamps to its range on entry.
+        let clamped = Binding<Int>(
+            get: { value.wrappedValue },
+            set: { value.wrappedValue = min(max($0, range.lowerBound), range.upperBound) }
+        )
+        return VStack(spacing: 4) {
+            TextField("0", value: clamped, format: .number)
+                .textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.center)
+                .font(.system(.title3, design: .rounded).monospacedDigit())
+                .frame(width: 68)
             Text(label).font(.caption2).foregroundStyle(.secondary)
         }
     }
