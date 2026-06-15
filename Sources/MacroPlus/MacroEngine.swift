@@ -12,11 +12,14 @@ final class MacroEngine: ObservableObject {
     /// Whether to capture mouse-move events (off by default — they create huge macros).
     var recordMouseMoves = false
 
-    private var monitors: [Any] = []
     private var recorded: [MacroEvent] = []
     private var lastTimestamp: TimeInterval = 0
     private let source = CGEventSource(stateID: .hidSystemState)
     private var playbackWork: DispatchWorkItem?
+
+    // CGEventTap state — a listen-only tap reliably captures both keyboard and mouse.
+    private var eventTap: CFMachPort?
+    private var runLoopSource: CFRunLoopSource?
 
     var onRecordingFinished: ((Macro) -> Void)?
     var onPlaybackFinished: (() -> Void)?
@@ -28,43 +31,77 @@ final class MacroEngine: ObservableObject {
         recorded = []
         liveEventCount = 0
         lastTimestamp = ProcessInfo.processInfo.systemUptime
-        isRecording = true
 
-        let mask: NSEvent.EventTypeMask = [
-            .leftMouseDown, .leftMouseUp,
-            .rightMouseDown, .rightMouseUp,
-            .otherMouseDown, .otherMouseUp,
-            .keyDown, .keyUp, .scrollWheel,
-            recordMouseMoves ? .mouseMoved : []
-        ]
-
-        // Global monitor only: it fires for events sent to *other* apps, never to
-        // MacroPlus itself. That means clicking our own Start/Stop buttons is never
-        // recorded — a macro is meant to automate other applications.
-        if let m = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { [weak self] event in
-            self?.capture(event)
-        }) {
-            monitors.append(m)
+        var mask: CGEventMask =
+            (1 << CGEventType.leftMouseDown.rawValue) |
+            (1 << CGEventType.leftMouseUp.rawValue) |
+            (1 << CGEventType.rightMouseDown.rawValue) |
+            (1 << CGEventType.rightMouseUp.rawValue) |
+            (1 << CGEventType.otherMouseDown.rawValue) |
+            (1 << CGEventType.otherMouseUp.rawValue) |
+            (1 << CGEventType.keyDown.rawValue) |
+            (1 << CGEventType.keyUp.rawValue) |
+            (1 << CGEventType.scrollWheel.rawValue)
+        if recordMouseMoves {
+            mask |= (1 << CGEventType.mouseMoved.rawValue)
         }
+
+        let refcon = Unmanaged.passUnretained(self).toOpaque()
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .listenOnly,
+            eventsOfInterest: mask,
+            callback: { _, type, event, refcon in
+                if let refcon = refcon {
+                    let engine = Unmanaged<MacroEngine>.fromOpaque(refcon).takeUnretainedValue()
+                    engine.handleTap(type: type, event: event)
+                }
+                return Unmanaged.passUnretained(event)
+            },
+            userInfo: refcon
+        ) else {
+            // Tap creation fails when permissions are missing.
+            DispatchQueue.main.async { [weak self] in
+                self?.onRecordingFinished?(Macro(name: "", events: []))
+            }
+            return
+        }
+
+        let src = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        CFRunLoopAddSource(CFRunLoopGetMain(), src, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+        eventTap = tap
+        runLoopSource = src
+        isRecording = true
     }
 
     func stopRecording(name: String) {
         guard isRecording else { return }
-        tearDownMonitors()
+        tearDownTap()
         isRecording = false
         let macro = Macro(name: name, events: recorded)
         DispatchQueue.main.async { [weak self] in self?.onRecordingFinished?(macro) }
     }
 
-    private func capture(_ event: NSEvent) {
+    /// Called from the event-tap callback for every observed system event.
+    fileprivate func handleTap(type: CGEventType, event: CGEvent) {
+        // The system can disable a tap on timeout/heavy load — re-enable it.
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: true) }
+            return
+        }
+
         let now = ProcessInfo.processInfo.systemUptime
         let delay = max(0, now - lastTimestamp)
         lastTimestamp = now
 
-        let p = flippedMouseLocation()
+        let p = event.location   // global coords, top-left origin (matches playback)
+        let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+        let flags = event.flags.rawValue
         var ev: MacroEvent?
 
-        switch event.type {
+        switch type {
         case .leftMouseDown:   ev = MacroEvent(kind: .mouseDown, delay: delay, x: p.x, y: p.y, button: .left)
         case .leftMouseUp:     ev = MacroEvent(kind: .mouseUp, delay: delay, x: p.x, y: p.y, button: .left)
         case .rightMouseDown:  ev = MacroEvent(kind: .mouseDown, delay: delay, x: p.x, y: p.y, button: .right)
@@ -72,16 +109,12 @@ final class MacroEngine: ObservableObject {
         case .otherMouseDown:  ev = MacroEvent(kind: .mouseDown, delay: delay, x: p.x, y: p.y, button: .middle)
         case .otherMouseUp:    ev = MacroEvent(kind: .mouseUp, delay: delay, x: p.x, y: p.y, button: .middle)
         case .mouseMoved:      ev = MacroEvent(kind: .mouseMove, delay: delay, x: p.x, y: p.y)
-        case .keyDown:
-            ev = MacroEvent(kind: .keyDown, delay: delay, keyCode: event.keyCode,
-                            flags: UInt64(event.modifierFlags.rawValue))
-        case .keyUp:
-            ev = MacroEvent(kind: .keyUp, delay: delay, keyCode: event.keyCode,
-                            flags: UInt64(event.modifierFlags.rawValue))
+        case .keyDown:         ev = MacroEvent(kind: .keyDown, delay: delay, keyCode: keyCode, flags: flags)
+        case .keyUp:           ev = MacroEvent(kind: .keyUp, delay: delay, keyCode: keyCode, flags: flags)
         case .scrollWheel:
             var e = MacroEvent(kind: .scroll, delay: delay, x: p.x, y: p.y)
-            e.scrollY = Int32(event.scrollingDeltaY)
-            e.scrollX = Int32(event.scrollingDeltaX)
+            e.scrollY = Int32(event.getIntegerValueField(.scrollWheelEventDeltaAxis1))
+            e.scrollX = Int32(event.getIntegerValueField(.scrollWheelEventDeltaAxis2))
             ev = e
         default:
             break
@@ -89,7 +122,8 @@ final class MacroEngine: ObservableObject {
 
         if let ev = ev {
             recorded.append(ev)
-            DispatchQueue.main.async { [weak self] in self?.liveEventCount = self?.recorded.count ?? 0 }
+            let count = recorded.count
+            DispatchQueue.main.async { [weak self] in self?.liveEventCount = count }
         }
     }
 
@@ -177,14 +211,12 @@ final class MacroEngine: ObservableObject {
         }
     }
 
-    private func flippedMouseLocation() -> CGPoint {
-        let loc = NSEvent.mouseLocation
-        let screenHeight = NSScreen.screens.first?.frame.height ?? 0
-        return CGPoint(x: loc.x, y: screenHeight - loc.y)
-    }
-
-    private func tearDownMonitors() {
-        for m in monitors { NSEvent.removeMonitor(m) }
-        monitors.removeAll()
+    private func tearDownTap() {
+        if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: false) }
+        if let src = runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), src, .commonModes)
+        }
+        eventTap = nil
+        runLoopSource = nil
     }
 }

@@ -60,6 +60,10 @@ final class AppState: ObservableObject {
         }
         macroEngine.onRecordingFinished = { [weak self] macro in
             guard let self = self else { return }
+            guard !macro.events.isEmpty else {
+                self.statusMessage = "Nothing recorded — check Input Monitoring & Accessibility"
+                return
+            }
             var m = macro
             if m.name.isEmpty { m.name = "Macro \(self.store.macros.count + 1)" }
             self.store.add(m)
