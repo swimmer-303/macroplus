@@ -129,8 +129,10 @@ final class MacroEngine: ObservableObject {
 
     // MARK: - Playback
 
-    /// Plays a macro `repeatCount` times at `speed` multiplier (2.0 = twice as fast).
-    func play(_ macro: Macro, repeatCount: Int, speed: Double) {
+    /// Plays a macro at `speed` multiplier (2.0 = twice as fast).
+    /// If `loopForever` is true it repeats until `stopPlayback()` is called;
+    /// otherwise it runs `repeatCount` times.
+    func play(_ macro: Macro, loopForever: Bool, repeatCount: Int, speed: Double) {
         stopPlayback()
         guard !macro.events.isEmpty else { return }
         isPlaying = true
@@ -141,17 +143,21 @@ final class MacroEngine: ObservableObject {
             let loops = max(1, repeatCount)
             let totalSteps = macro.events.count * loops
             var step = 0
+            var loop = 0
 
-            for _ in 0..<loops {
+            while loopForever || loop < loops {
                 for ev in macro.events {
                     if self.playbackWork?.isCancelled ?? true { return }
                     let wait = ev.delay / max(0.05, speed)
                     if wait > 0 { Thread.sleep(forTimeInterval: wait) }
                     self.perform(ev)
-                    step += 1
-                    let progress = Double(step) / Double(totalSteps)
-                    DispatchQueue.main.async { self.playbackProgress = progress }
+                    if !loopForever {
+                        step += 1
+                        let progress = Double(step) / Double(totalSteps)
+                        DispatchQueue.main.async { self.playbackProgress = progress }
+                    }
                 }
+                loop += 1
             }
             DispatchQueue.main.async {
                 self.isPlaying = false

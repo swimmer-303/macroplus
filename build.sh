@@ -47,8 +47,18 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-echo "▶ Ad-hoc code signing…"
-codesign --force --deep --sign - "$APP" 2>/dev/null || echo "  (codesign skipped)"
+echo "▶ Code signing…"
+# Prefer a stable signing identity so macOS keeps Accessibility / Input Monitoring
+# grants across rebuilds. Fall back to ad-hoc if none is available.
+SIGN_ID="$(security find-identity -p codesigning -v 2>/dev/null | awk -F'"' '/[0-9]+\)/{print $2; exit}')"
+if [ -n "$SIGN_ID" ]; then
+    echo "  using identity: $SIGN_ID"
+    codesign --force --deep --sign "$SIGN_ID" "$APP" 2>/dev/null \
+        && echo "  signed" || { echo "  identity sign failed, using ad-hoc"; codesign --force --deep --sign - "$APP"; }
+else
+    echo "  no identity found, ad-hoc signing"
+    codesign --force --deep --sign - "$APP" 2>/dev/null || echo "  (codesign skipped)"
+fi
 
 echo "✅ Built $APP"
 echo "   Run with: open \"$APP\""

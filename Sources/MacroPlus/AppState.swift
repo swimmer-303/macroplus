@@ -25,6 +25,7 @@ final class AppState: ObservableObject {
     @Published var humanize: Bool = false
 
     // Macro settings
+    @Published var macroRepeatMode: RepeatMode = .forever
     @Published var macroRepeat: Int = 1
     @Published var macroSpeed: Double = 1.0
     @Published var recordMouseMoves: Bool = false
@@ -126,8 +127,12 @@ final class AppState: ObservableObject {
 
     func playSelected() {
         guard ensureTrusted(), let macro = selectedMacro else { return }
-        macroEngine.play(macro, repeatCount: macroRepeat, speed: macroSpeed)
-        statusMessage = "Playing \(macro.name)…"
+        let forever = macroRepeatMode == .forever
+        macroEngine.play(macro, loopForever: forever,
+                         repeatCount: macroRepeat, speed: macroSpeed)
+        statusMessage = forever
+            ? "Looping \(macro.name)… press \(hotkey.keyName(for: .playMacro)) to stop"
+            : "Playing \(macro.name) \(macroRepeat)×…"
     }
 
     func stopMacro() {

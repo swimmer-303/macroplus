@@ -8,6 +8,11 @@ struct MacroView: View {
     private var engine: MacroEngine { state.macroEngine }
     private var store: MacroStore { state.store }
 
+    private var speedLabel: String {
+        let s = state.macroSpeed
+        return s < 10 ? String(format: "%.2g×", s) : "\(Int(s))×"
+    }
+
     var body: some View {
         VStack(spacing: 16) {
             header
@@ -124,24 +129,38 @@ struct MacroView: View {
     private var detailCard: some View {
         if let macro = state.selectedMacro {
             Card(title: macro.name, systemImage: "list.bullet.rectangle") {
-                HStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Repeat").font(.caption).foregroundStyle(.secondary)
-                        Stepper(value: $state.macroRepeat, in: 1...10000) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Repeat").font(.caption).foregroundStyle(.secondary)
+                    Picker("", selection: $state.macroRepeatMode) {
+                        ForEach(RepeatMode.allCases) { Text($0.label).tag($0) }
+                    }.pickerStyle(.segmented).labelsHidden()
+                    if state.macroRepeatMode == .count {
+                        Stepper(value: $state.macroRepeat, in: 1...100000) {
                             Text("\(state.macroRepeat)×").monospacedDigit()
-                        }.frame(width: 120)
+                        }.frame(width: 140)
+                    } else {
+                        Text("Loops until you press \(state.hotkey.keyName(for: .playMacro)) (or Stop) again.")
+                            .font(.caption2).foregroundStyle(.secondary)
                     }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Speed \(String(format: "%.2g", state.macroSpeed))×")
-                            .font(.caption).foregroundStyle(.secondary)
-                        Slider(value: $state.macroSpeed, in: 0.25...4.0)
-                            .frame(width: 160)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Speed \(speedLabel)").font(.caption).foregroundStyle(.secondary)
+                    Slider(value: $state.macroSpeed, in: 0.25...50.0)
+                    HStack {
+                        ForEach([1.0, 2.0, 5.0, 10.0, 25.0, 50.0], id: \.self) { s in
+                            Button(s < 1 ? "\(s)×" : "\(Int(s))×") { state.macroSpeed = s }
+                                .buttonStyle(.bordered).controlSize(.small)
+                        }
                     }
                 }
 
                 if engine.isPlaying {
-                    ProgressView(value: engine.playbackProgress)
-                        .tint(Theme.accent)
+                    if state.macroRepeatMode == .forever {
+                        ProgressView().tint(Theme.accent)   // looping: indeterminate
+                    } else {
+                        ProgressView(value: engine.playbackProgress).tint(Theme.accent)
+                    }
                 }
 
                 HStack {
