@@ -27,18 +27,55 @@ enum HotkeyAction: String, CaseIterable, Identifiable {
     }
 }
 
+/// A key plus its modifier combination (⌃ ⌥ ⇧ ⌘).
+struct HotkeyCombo: Equatable {
+    var keyCode: UInt16
+    var mods: UInt8     // bit0 shift, bit1 control, bit2 option, bit3 command
+
+    static let shift: UInt8 = 1, control: UInt8 = 2, option: UInt8 = 4, command: UInt8 = 8
+
+    static func mods(from f: NSEvent.ModifierFlags) -> UInt8 {
+        var m: UInt8 = 0
+        if f.contains(.shift)   { m |= shift }
+        if f.contains(.control) { m |= control }
+        if f.contains(.option)  { m |= option }
+        if f.contains(.command) { m |= command }
+        return m
+    }
+
+    static func mods(from f: CGEventFlags) -> UInt8 {
+        var m: UInt8 = 0
+        if f.contains(.maskShift)     { m |= shift }
+        if f.contains(.maskControl)   { m |= control }
+        if f.contains(.maskAlternate) { m |= option }
+        if f.contains(.maskCommand)   { m |= command }
+        return m
+    }
+
+    /// Human-readable form, e.g. "⌃⇧A" or "F6".
+    var display: String {
+        var s = ""
+        if mods & Self.control != 0 { s += "⌃" }
+        if mods & Self.option  != 0 { s += "⌥" }
+        if mods & Self.shift   != 0 { s += "⇧" }
+        if mods & Self.command != 0 { s += "⌘" }
+        return s + KeyNames.name(for: keyCode)
+    }
+}
+
 /// Listens for global trigger keys via a CGEventTap and fires the matching action.
-/// (NSEvent global monitors drop keyDown events — a CGEventTap is reliable.)
 final class HotkeyManager: ObservableObject {
-    @Published var bindings: [HotkeyAction: UInt16]
+    @Published var bindings: [HotkeyAction: HotkeyCombo]
     var handlers: [HotkeyAction: () -> Void] = [:]
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
 
     init() {
-        var defaults: [HotkeyAction: UInt16] = [:]
-        for action in HotkeyAction.allCases { defaults[action] = action.defaultKey }
+        var defaults: [HotkeyAction: HotkeyCombo] = [:]
+        for action in HotkeyAction.allCases {
+            defaults[action] = HotkeyCombo(keyCode: action.defaultKey, mods: 0)
+        }
         bindings = defaults
     }
 
@@ -82,21 +119,20 @@ final class HotkeyManager: ObservableObject {
         if eventTap == nil { install() }
     }
 
-    /// Rebinds an action, refusing duplicates by clearing any other action on that key.
-    func rebind(_ action: HotkeyAction, to keyCode: UInt16) {
-        for (a, k) in bindings where k == keyCode && a != action {
+    /// Rebinds an action, clearing any other action sharing the same combination.
+    func rebind(_ action: HotkeyAction, to combo: HotkeyCombo) {
+        for (a, c) in bindings where c == combo && a != action {
             bindings[a] = nil
         }
-        bindings[action] = keyCode
+        bindings[action] = combo
     }
 
     func keyName(for action: HotkeyAction) -> String {
-        guard let code = bindings[action] else { return "—" }
-        return KeyNames.name(for: code)
+        bindings[action]?.display ?? "—"
     }
 
-    private func action(for keyCode: UInt16) -> HotkeyAction? {
-        bindings.first(where: { $0.value == keyCode })?.key
+    private func action(for combo: HotkeyCombo) -> HotkeyAction? {
+        bindings.first(where: { $0.value == combo })?.key
     }
 
     private func handle(type: CGEventType, event: CGEvent) {
@@ -104,8 +140,9 @@ final class HotkeyManager: ObservableObject {
             if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: true) }
             return
         }
-        let code = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
-        guard let action = action(for: code) else { return }
+        let combo = HotkeyCombo(keyCode: UInt16(event.getIntegerValueField(.keyboardEventKeycode)),
+                                mods: HotkeyCombo.mods(from: event.flags))
+        guard let action = action(for: combo) else { return }
         DispatchQueue.main.async { [weak self] in self?.handlers[action]?() }
     }
 }

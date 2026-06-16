@@ -131,7 +131,9 @@ struct SettingsView: View {
         stopCapture()
         capturingAction = action
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
-            state.hotkey.rebind(action, to: event.keyCode)
+            let combo = HotkeyCombo(keyCode: event.keyCode,
+                                    mods: HotkeyCombo.mods(from: event.modifierFlags))
+            state.hotkey.rebind(action, to: combo)
             stopCapture()
             return nil
         }
